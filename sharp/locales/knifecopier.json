@@ -1,0 +1,42 @@
+{
+  "Menu.Title": {
+    "en-US": "Copy knife skin from...",
+    "zh-CN": "复制谁的刀皮肤..."
+  },
+  "Menu.NoPlayers": {
+    "en-US": "No players with a custom knife",
+    "zh-CN": "没有玩家拥有自定义匕首"
+  },
+  "Chat.MenuUnavailable": {
+    "en-US": "Menu system unavailable. Is '{0}' installed?",
+    "zh-CN": "菜单系统不可用，是否已安装 '{0}'？"
+  },
+  "Chat.MustBeAliveCopy": {
+    "en-US": "You must be alive to copy a knife skin.",
+    "zh-CN": "你必须存活才能复制刀皮肤。"
+  },
+  "Chat.MustBeAliveReceive": {
+    "en-US": "You must be alive to receive a knife skin.",
+    "zh-CN": "你必须存活才能获得刀皮肤。"
+  },
+  "Chat.TargetUnavailable": {
+    "en-US": "That player is no longer available.",
+    "zh-CN": "该玩家已不可用。"
+  },
+  "Chat.CouldNotRead": {
+    "en-US": "Could not read that player's knife.",
+    "zh-CN": "无法读取该玩家的匕首。"
+  },
+  "Chat.NoCustomKnife": {
+    "en-US": "That player no longer has a custom knife on {0}.",
+    "zh-CN": "该玩家在 {0} 阵营已不再拥有自定义匕首。"
+  },
+  "Chat.UnknownDef": {
+    "en-US": "Unknown knife definition.",
+    "zh-CN": "未知的匕首定义。"
+  },
+  "Chat.Copied": {
+    "en-US": "Copied {0}.",
+    "zh-CN": "已复制 {0}。"
+  }
+}
