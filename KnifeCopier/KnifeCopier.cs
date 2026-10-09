@@ -17,7 +17,9 @@ namespace KnifeCopier;
 
 public sealed partial class KnifeCopier : IModSharpModule
 {
-    private const int VTableGetCustomPaintKitIndex = 3;
+    // CEconItemView::GetCustomPaintKitIndex is the only CEconItemView virtual referencing this attribute name.
+    // The slot differs per ABI (Itanium emits two destructor slots, MSVC one), so it is resolved by scanning.
+    private const string PaintKitAttributeName = "set item texture prefab";
 
     private const ushort DefaultKnifeCt = (ushort) EconItemId.KnifeCt;
     private const ushort DefaultKnifeTe = (ushort) EconItemId.KnifeTe;
@@ -88,6 +90,7 @@ public sealed partial class KnifeCopier : IModSharpModule
     private bool                                         _localeFileLoaded;
 
     private static nint _giveNamedItemFn;
+    private static int  _getCustomPaintKitIndex = -1;
 
     public KnifeCopier(
         ISharedSystem  sharedSystem,
@@ -111,6 +114,8 @@ public sealed partial class KnifeCopier : IModSharpModule
         {
             _logger.LogError("Failed to resolve '{Key}' from gamedata; cannot give knives.", GiveNamedItemGameDataKey);
         }
+
+        _getCustomPaintKitIndex = FindGetCustomPaintKitIndex();
 
         GetLocaleTokens(DefaultLanguage);
 
@@ -350,11 +355,59 @@ public sealed partial class KnifeCopier : IModSharpModule
     private static GearSlot ToGearSlot(LoadoutSlot slot)
         => slot == LoadoutSlot.Melee ? GearSlot.Knife : GearSlot.Pistol;
 
+    private int FindGetCustomPaintKitIndex()
+    {
+        try
+        {
+            var server   = _shared.GetLibraryModuleManager().Server;
+            var vfuncs   = server.GetVirtualFunctions("CEconItemView");
+            var referers = server.FindFunctions(PaintKitAttributeName);
+
+            var found = -1;
+
+            for (var i = 0; i < vfuncs.Length; i++)
+            {
+                if (Array.IndexOf(referers, vfuncs[i]) < 0)
+                {
+                    continue;
+                }
+
+                if (found >= 0)
+                {
+                    _logger.LogError("CEconItemView slots {First} and {Second} both reference '{Name}'; paint kits unavailable.",
+                                     found, i, PaintKitAttributeName);
+
+                    return -1;
+                }
+
+                found = i;
+            }
+
+            if (found < 0)
+            {
+                _logger.LogError("No CEconItemView virtual references '{Name}'; paint kits unavailable.", PaintKitAttributeName);
+            }
+
+            return found;
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Failed to scan CEconItemView for GetCustomPaintKitIndex; paint kits unavailable.");
+
+            return -1;
+        }
+    }
+
     private static unsafe int ReadCustomPaintKit(IEconItemView view)
     {
+        if (_getCustomPaintKitIndex < 0)
+        {
+            return 0;
+        }
+
         var self   = view.GetAbsPtr();
         var vtable = *(nint**) self;
-        var fn     = (delegate* unmanaged<nint, int>) vtable[VTableGetCustomPaintKitIndex];
+        var fn     = (delegate* unmanaged<nint, int>) vtable[_getCustomPaintKitIndex];
 
         return fn(self);
     }

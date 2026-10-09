@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [ main, master ]
-    tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -11,11 +10,17 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+  cancel-in-progress: false
+
+env:
+  PROJECT: KnifeCopier/KnifeCopier.csproj
+
 jobs:
   build:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.ver.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,20 +30,41 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Restore
-        run: dotnet restore KnifeCopier/KnifeCopier.csproj
-
       - name: Publish (Release)
-        run: dotnet publish KnifeCopier/KnifeCopier.csproj -c Release --no-restore -o "$RUNNER_TEMP/publish"
+        run: dotnet publish "$PROJECT" -c Release -o "$RUNNER_TEMP/publish"
 
-      - name: Determine version
+  release:
+    # Version-bump commits are pushed with GITHUB_TOKEN, which does not trigger workflows; the actor check is a backstop.
+    if: github.event_name != 'pull_request' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Bump patch version
         id: ver
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+          current=$(sed -n 's:.*<Version>\([0-9.]*\)</Version>.*:\1:p' "$PROJECT")
+          [[ -n "$current" ]] || { echo "No <Version> in $PROJECT" >&2; exit 1; }
+          IFS=. read -r major minor patch <<< "$current"
+          next="$major.$minor.$((patch + 1))"
+          while git rev-parse -q --verify "refs/tags/v$next" > /dev/null; do
+            next="$major.$minor.$(( ${next##*.} + 1 ))"
+          done
+          sed -i "s:<Version>$current</Version>:<Version>$next</Version>:" "$PROJECT"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "Bumped $current -> $next"
+
+      - name: Publish (Release)
+        run: dotnet publish "$PROJECT" -c Release -o "$RUNNER_TEMP/publish"
 
       - name: Assemble server layout
         run: |
@@ -46,33 +72,21 @@ jobs:
           mkdir -p dist/sharp/modules/KnifeCopier dist/sharp/locales
           cp -r "$RUNNER_TEMP/publish/." dist/sharp/modules/KnifeCopier/
           cp sharp/locales/knifecopier.json dist/sharp/locales/
-          find dist -type f
+          (cd dist && zip -r "$GITHUB_WORKSPACE/KnifeCopier-v${{ steps.ver.outputs.version }}.zip" sharp)
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: KnifeCopier-${{ steps.ver.outputs.version }}
-          path: dist
-          if-no-files-found: error
-
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: KnifeCopier-${{ needs.build.outputs.version }}
-          path: dist
-
-      - name: Package zip
+      - name: Commit and tag version
         run: |
-          cd dist
-          zip -r "$GITHUB_WORKSPACE/KnifeCopier-${{ needs.build.outputs.version }}.zip" sharp
+          set -euo pipefail
+          version="${{ steps.ver.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: release v$version [skip ci]"
+          git tag "v$version"
+          git push --atomic origin "HEAD:${GITHUB_REF_NAME}" "v$version"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: KnifeCopier-${{ needs.build.outputs.version }}.zip
+          tag_name: v${{ steps.ver.outputs.version }}
+          files: KnifeCopier-v${{ steps.ver.outputs.version }}.zip
           generate_release_notes: true
